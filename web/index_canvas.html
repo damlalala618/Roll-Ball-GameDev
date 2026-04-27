@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bridge Collect-Dodge Runner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      background: #000000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #000000;
+    }
+    
+    /* Connection Button - Glassmorphism */
+    #connectBtn {
+      position: absolute;
+      top: 24px;
+      right: 32px;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(4px);
+      color: #ffffff;
+      border: 1px solid #00ffcc;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      opacity: 0.8;
+    }
+    
+    #connectBtn:hover {
+      background: rgba(0, 255, 204, 0.1);
+      opacity: 1;
+      box-shadow: 0 0 12px rgba(0, 255, 204, 0.2);
+    }
+    
+    #connectBtn:active {
+      transform: scale(0.98);
+    }
+    
+    /* Pause Button */
+    #pauseBtn {
+      position: absolute;
+      top: 68px;
+      right: 32px;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(4px);
+      color: #ffffff;
+      border: 1px solid #00ffcc;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      opacity: 0.8;
+      display: none;
+    }
+    
+    #pauseBtn:hover {
+      background: rgba(0, 255, 204, 0.1);
+      opacity: 1;
+      box-shadow: 0 0 12px rgba(0, 255, 204, 0.2);
+    }
+    
+    #pauseBtn:active {
+      transform: scale(0.98);
+    }
+    
+    /* Connection Status */
+    #status {
+      position: absolute;
+      top: 24px;
+      left: 32px;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 400;
+      z-index: 100;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+    
+    /* Game UI Overlay - MUST NOT AFFECT LAYOUT */
+    #gameUI {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 50;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .ui-message {
+      color: #ffffff;
+      font-size: 32px;
+      font-weight: 600;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+      white-space: nowrap;
+    }
+    
+    .ui-message.visible {
+      opacity: 0.95;
+    }
+    
+    .ui-message.game-over {
+      color: #ff3366;
+      font-size: 48px;
+    }
+    
+    .ui-subtitle {
+      color: #ffffff;
+      font-size: 16px;
+      margin-top: 16px;
+      opacity: 0.7;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+    }
+    
+    #statsBar {
+      position: absolute;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 32px;
+      align-items: center;
+      z-index: 100;
+      pointer-events: none;
+    }
+    
+    #score {
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 500;
+      opacity: 0.7;
+    }
+    
+    #collected {
+      color: #00ccff;
+      font-size: 16px;
+      font-weight: 500;
+      opacity: 0.8;
+    }
+    
+    /* Splash Screen */
+    #splash {
+      position: fixed;
+      inset: 0;
+      background: #000000;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      cursor: pointer;
+      transition: opacity 0.8s ease;
+    }
+    
+    #splash.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    #splash .splash-title {
+      font-size: clamp(56px, 10vw, 112px);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #ffcc00;
+      text-shadow:
+        0 0 40px rgba(255, 204, 0, 0.7),
+        0 0 80px rgba(255, 204, 0, 0.3);
+      animation: splashPulse 2s ease-in-out infinite;
+    }
+    
+    #splash .splash-subtitle {
+      font-size: clamp(13px, 2vw, 18px);
+      color: rgba(255, 255, 255, 0.45);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    
+    @keyframes splashPulse {
+      0%, 100% { text-shadow: 0 0 40px rgba(255,204,0,0.7), 0 0 80px rgba(255,204,0,0.3); }
+      50%       { text-shadow: 0 0 60px rgba(255,204,0,1),   0 0 120px rgba(255,204,0,0.6); }
+    }
+  </style>
+</head>
+<body>
+  <!-- Splash Screen -->
+  <div id="splash">
+    <div class="splash-title">Roll Ball</div>
+    <div class="splash-subtitle">Click or press any key to start</div>
+  </div>
+
+  <canvas id="gameCanvas"></canvas>
+  <div id="gameUI"></div>
+  <button id="connectBtn">CONNECT</button>
+  <button id="pauseBtn">PAUSE</button>
+  <div id="status"></div>
+  <div id="statsBar">
+    <div id="collected"></div>
+    <div id="score"></div>
+  </div>
+
+  <script>
+    // ============================================================
+    // LAYER 1: Web Serial Input (100% PRESERVED)
+    // ============================================================
+    let port, reader, decoder = new TextDecoder(), buffer = "", inputQueue = [];
+    let connected = false;
+    
+    const connectBtn = document.getElementById('connectBtn');
+    const statusDiv = document.getElementById('status');
+    
+    connectBtn.textContent = "CONNECT";
+    
+    async function connectSerial() {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        reader = port.readable.getReader();
+        connected = true;
+        connectBtn.textContent = "CONNECTED";
+        statusDiv.textContent = "✓ Joystick Ready";
+        readSerial();
+      } catch (e) {
+        statusDiv.textContent = "✗ Connection Failed";
+        connectBtn.textContent = "CONNECT";
+      }
+    }
+    
+    async function readSerial() {
+      while (connected) {
+        try {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let lines = buffer.split("\n");
+          buffer = lines.pop();
+          for (let line of lines) {
+            let cmd = line.trim();
+            if (cmd) inputQueue.push(cmd);
+          }
+        } catch (e) {
+          connected = false;
+          connectBtn.textContent = "CONNECT";
+          statusDiv.textContent = "✗ Disconnected";
+        }
+      }
+    }
+    
+    connectBtn.onclick = connectSerial;
+    
+    // ============================================================
+    // Audio
+    // ============================================================
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playCollectSound() {
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.exponentialRampToValueAtTime(1320, t + 0.08);
+      gain.gain.setValueAtTime(0.25, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    }
+    
+    function playWooshSound() {
+      const t = audioCtx.currentTime;
+      const dur = 0.75;
+      // Rising pitch sweep
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(150, t);
+      osc.frequency.exponentialRampToValueAtTime(2200, t + dur * 0.7);
+      osc.frequency.exponentialRampToValueAtTime(1600, t + dur);
+      gain.gain.setValueAtTime(0.0, t);
+      gain.gain.linearRampToValueAtTime(0.32, t + 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      osc.start(t);
+      osc.stop(t + dur);
+      // Breathy noise layer
+      const bufSize = Math.floor(audioCtx.sampleRate * dur);
+      const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * (i / bufSize) * (1 - i / bufSize) * 4;
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const ngain = audioCtx.createGain();
+      ngain.gain.setValueAtTime(0.18, t);
+      ngain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      src.connect(ngain);
+      ngain.connect(audioCtx.destination);
+      src.start(t);
+    }
+    
+    function playLevelUpSound() {
+      const t = audioCtx.currentTime;
+      // Three ascending chime notes
+      const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
+      notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t + i * 0.12);
+        gain.gain.setValueAtTime(0.0, t + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.28, t + i * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.35);
+        osc.start(t + i * 0.12);
+        osc.stop(t + i * 0.12 + 0.35);
+      });
+    }
+    
+    function playDeathSound() {
+      const t = audioCtx.currentTime;
+      // Low rumble descending
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(320, t);
+      osc.frequency.exponentialRampToValueAtTime(60, t + 0.6);
+      gain.gain.setValueAtTime(0.35, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      osc.start(t);
+      osc.stop(t + 0.6);
+      // Second layer: noise burst
+      const bufSize = audioCtx.sampleRate * 0.3;
+      const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const ngain = audioCtx.createGain();
+      ngain.gain.setValueAtTime(0.15, t);
+      src.connect(ngain);
+      ngain.connect(audioCtx.destination);
+      src.start(t);
+    }
+    
+    // ============================================================
+    // Pause / Resume
+    // ============================================================
+    const pauseBtn = document.getElementById('pauseBtn');
+    
+    function togglePause() {
+      if (gameState === "RUNNING") {
+        gameState = "PAUSED";
+        pauseBtn.textContent = "RESUME";
+        updateUI();
+      } else if (gameState === "PAUSED") {
+        gameState = "RUNNING";
+        pauseBtn.textContent = "PAUSE";
+        updateUI();
+      }
+    }
+    
+    pauseBtn.onclick = togglePause;
+    
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePause();
+      }
+    });
+    
+    // ============================================================
+    // LAYER 2: Canvas Setup
+    // ============================================================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const gameUI = document.getElementById('gameUI');
+    
+    let W = window.innerWidth, H = window.innerHeight;
+    
+    function resize() {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      canvas.width = W;
+      canvas.height = H;
+    }
+    
+    window.addEventListener('resize', resize);
+    resize();
+    
+    // ============================================================
+    // LAYER 3: World Parameters (BRIDGE - not tunnel)
+    // ============================================================
+    const bridgeWidth = 4.0;      // X axis: -2 to +2
+    const bridgeHeight = 0.5;     // Y axis thickness
+    const worldLength = 50;        // Z depth
+    const worldSegments = 25;      // Bridge segments for wireframe
+    
+    const playerRadius = 0.45;
+    const laneCount = 3;
+    const laneWidth = bridgeWidth / laneCount;
+    
+    // Speed parameters (optimized for Joystick reaction time)
+    const speedBase = 0.15;        // ~9 unit/s @ 60fps
+    const speedUp = 0.25;          // ~15 unit/s @ 60fps
+    
+    // Visual parameters
+    const bridgeColor = "rgba(0, 255, 204, 0.15)";
+    const bridgeStroke = "#00ffcc";
+    const playerColor = "#ffcc00";
+    const playerGlow = "#ffcc00";
+    const collectColor = "rgba(0, 204, 255, 0.85)";
+    const collectStroke = "#00ccff";
+    const obstacleColor = "rgba(255, 50, 100, 0.2)";
+    const obstacleStroke = "#ff3366";
+    
+     // Rendering constants
+    const FOV = 600;
+    const VIEWER_Z = 3.75;
+    
+    // UI message auto-dismiss management
+    let uiMessageTimeout = null;
+    let lastMessageState = null;
+    
+    // ============================================================
+    // LAYER 4: Game State Machine
+    // ============================================================
+    let gameState = "START";   // START, RUNNING, GAMEOVER
+    let playerLane = 1;         // 0, 1, 2
+    let speed = speedBase;
+    let zOffset = 0;
+    let score = 0;
+    let bestScore = 0;
+    let shapesCollected = 0;
+    
+    // Collectibles array
+    let collectibles = [];
+    let collectibleSpawnTimer = 0;
+    
+    // Floating +1 text particles
+    let popups = [];  // { cx, cy, alpha, vy }
+    const collectSpawnInterval = 0.7;  // seconds
+    
+    // Obstacles array
+    let obstacles = [];
+    let obstacleSpawnTimer = 0;
+    const obstacleSpawnInterval = 3.0;  // seconds
+    
+    // Speeders array (power-up: temporary speed boost)
+    let speeders = [];
+    let speederSpawnTimer = 0;
+    const speederSpawnInterval = 8.0;  // seconds — appears occasionally
+    let lastSpeederScore = 0;          // score at which last speeder spawned
+    const speederScoreInterval = 2500; // spawn one every 2500 score
+    let speedBoostTimer = 0;           // counts down while boost is active
+    const speedBoostDuration = 5.0;    // seconds of boost
+    const speedBoost = 0.38;           // boosted speed value
+    let currentBaseSpeed = speedBase;  // increases +20% each level
+    let speedUpBannerTimer = 0;        // countdown for "Speed Up!" banner
+    
+    function resetGame() {
+      gameState = "START";
+      playerLane = 1;
+      currentBaseSpeed = speedBase;
+      speed = currentBaseSpeed;
+      zOffset = 0;
+      collectibles = [];
+      obstacles = [];
+      speeders = [];
+      popups = [];
+      score = 0;
+      shapesCollected = 0;
+      collectibleSpawnTimer = 0;
+      obstacleSpawnTimer = 0;
+      speederSpawnTimer = 0;
+      lastSpeederScore = 0;
+      speedBoostTimer = 0;
+      speedUpBannerTimer = 0;
+      updateUI();
+    }
+    
+    // ============================================================
+    // LAYER 5: Collectible Spawning
+    // ============================================================
+    function spawnCollectible() {
+      const count = Math.floor(Math.random() * 5) + 3;  // 3-7 items
+      
+      for (let i = 0; i < count; i++) {
+        const x = (Math.random() - 0.5) * bridgeWidth;
+        const y = (Math.random() - 0.5) * 0.3;
+        const type = "sphere";
+        // Place items 12-22 units ahead of current player position
+        const zAhead = zOffset + 12 + Math.random() * 10;
+        
+        collectibles.push({
+          x, y,
+          z: zAhead,
+          type,
+          collected: false,
+          spawnTime: Date.now()
+        });
+      }
+      
+      collectibleSpawnTimer = 0;
+    }
+    
+    // ============================================================
+    // LAYER 5b: Speeder Spawning
+    // ============================================================
+    function spawnSpeeder() {
+      const lane = Math.floor(Math.random() * laneCount);
+      const laneX = (lane - (laneCount - 1) / 2) * laneWidth;
+      speeders.push({
+        x: laneX,
+        z: zOffset + 18 + Math.random() * 10,
+        hit: false
+      });
+      speederSpawnTimer = 0;
+    }
+    
+    // ============================================================
+    // LAYER 6: Obstacle Spawning
+    // ============================================================
+    function spawnObstacle() {
+      const blockedLane = Math.floor(Math.random() * laneCount);
+      // Place obstacle 20-30 units ahead so player has time to react
+      obstacles.push({
+        z: zOffset + 20 + Math.random() * 10,
+        blockedLane,
+        width: 0.9,
+        spawnTime: Date.now()
+      });
+      
+      obstacleSpawnTimer = 0;
+    }
+    
+    // ============================================================
+    // LAYER 7: Input Handling
+    // ============================================================
+    function handleInput(cmd) {
+      // Game Over -> Restart
+      if (gameState === "GAMEOVER" && cmd === "C") {
+        resetGame();
+        return;
+      }
+      
+      // Start -> Running
+      if (gameState === "START" && cmd === "U") {
+        gameState = "RUNNING";
+        spawnCollectible();
+        spawnObstacle();
+        updateUI();
+        return;
+      }
+      
+      // Toggle pause
+      if ((gameState === "RUNNING" || gameState === "PAUSED") && cmd === "P") {
+        togglePause();
+        return;
+      }
+      
+      // Only handle during game
+      if (gameState !== "RUNNING") return;
+      
+      // Lane switching (L/R)
+      if (cmd === "L" && playerLane > 0) playerLane--;
+      if (cmd === "R" && playerLane < laneCount - 1) playerLane++;
+      
+      // Speed control (U/D)
+      if (cmd === "U") speed = speedUp;
+      if (cmd === "D") speed = currentBaseSpeed;
+      
+      // Emergency restart
+      if (cmd === "C") resetGame();
+    }
+    
+    // ============================================================
+    // LAYER 8: 3D Projection (Perspective)
+    // ============================================================
+    function project3D(x, y, z) {
+      // CRITICAL CAMERA FIX: Strong top-down + forward tilt for visibility
+      // User must see 5-10 forward segments + clear path ahead
+      
+      const cameraTilt = 0.55;       // shallower tilt = road fills more screen
+      const cameraHeight = 2.2;      // Higher camera position
+      
+      // Camera tilt: far objects rise to create perspective depth
+      const adjustedY = y + z * Math.sin(cameraTilt) * 1.3;
+      
+      // Perspective scale
+      const scale = FOV / (z + VIEWER_Z);
+      
+      return [
+        W / 2 + x * scale,
+        H * 0.82 - adjustedY * scale  // Horizon lower = road fills most of screen
+      ];
+    }
+    
+    // ============================================================
+    // LAYER 9: Update Loop
+    // ============================================================
+    function update() {
+      // Process all queued input
+      while (inputQueue.length > 0) {
+        handleInput(inputQueue.shift());
+      }
+      
+      if (gameState !== "RUNNING") return;
+      
+      // Advance world
+      zOffset += speed;
+      score += speed * 3;  // Score scaling
+      
+      // Spawning timers
+      collectibleSpawnTimer += speed / 60;  // Adjust for frame time
+      obstacleSpawnTimer += speed / 60;
+      
+      // Spawn collectibles
+      if (collectibleSpawnTimer >= collectSpawnInterval) {
+        spawnCollectible();
+      }
+      
+      // Spawn obstacles
+      if (obstacleSpawnTimer >= obstacleSpawnInterval) {
+        spawnObstacle();
+      }
+      
+      // Spawn speeders — once every 2500 score
+      if (score - lastSpeederScore >= speederScoreInterval) {
+        spawnSpeeder();
+        lastSpeederScore += speederScoreInterval;
+        currentBaseSpeed *= 1.2;
+        if (speedBoostTimer <= 0) speed = currentBaseSpeed;
+        speedUpBannerTimer = 2.5;
+        playLevelUpSound();
+      }
+      
+      // Speed boost countdown
+      if (speedBoostTimer > 0) {
+        speedBoostTimer -= 1 / 60;
+        if (speedBoostTimer <= 0) {
+          speedBoostTimer = 0;
+          speed = currentBaseSpeed;
+        }
+      }
+      
+      // Remove passed speeders
+      speeders = speeders.filter(s => s.z - zOffset > -1);
+      
+      // Remove passed collectibles
+      collectibles = collectibles.filter(c => {
+        const dz = c.z - zOffset;
+        return dz > -1;
+      });
+      
+      // Remove passed obstacles
+      obstacles = obstacles.filter(o => {
+        const dz = o.z - zOffset;
+        return dz > -1;
+      });
+      
+      // ============================================================
+      // Collision Detection: COLLECTIBLES
+      // ============================================================
+      for (let col of collectibles) {
+        if (col.collected) continue;
+        
+        const dz = col.z - zOffset;
+        
+        // Collision window: 0.5 to 1.3 units ahead (optimized for 150-200ms @ speedBase)
+        if (dz < 1.3 && dz > 0.5) {
+          const playerX = (playerLane - (laneCount - 1) / 2) * laneWidth;
+          const dx = Math.abs(col.x - playerX);
+          
+          // Collision radius (considering player + collectible)
+          if (dx < playerRadius + 0.35) {
+            col.collected = true;
+            col.flashFrames = 20;
+            score += 50;
+            shapesCollected++;
+            playCollectSound();
+            const [pcx, pcy] = project3D(col.x, col.y, dz);
+            popups.push({ cx: pcx, cy: pcy, alpha: 1.0, vy: -1.8 });
+          }
+        }
+      }
+      
+      // Tick flash frames and remove when done
+      for (let c of collectibles) {
+        if (c.collected) c.flashFrames--;
+      }
+      collectibles = collectibles.filter(c => !c.collected || c.flashFrames > 0);
+      
+      // ============================================================
+      // Collision Detection: SPEEDERS
+      // ============================================================
+      for (let sp of speeders) {
+        if (sp.hit) continue;
+        const dz = sp.z - zOffset;
+        if (dz < 1.3 && dz > 0.4) {
+          const playerX = (playerLane - (laneCount - 1) / 2) * laneWidth;
+          if (Math.abs(sp.x - playerX) < playerRadius + 0.4) {
+            sp.hit = true;
+            speed = speedBoost;
+            speedBoostTimer = speedBoostDuration;
+            score += 100;
+            playWooshSound();
+          }
+        }
+      }
+      speeders = speeders.filter(s => !s.hit);
+      
+      // Animate popups
+      for (let p of popups) {
+        p.cy += p.vy;
+        p.alpha -= 0.022;
+      }
+      popups = popups.filter(p => p.alpha > 0);
+      
+      // ============================================================
+      // Collision Detection: OBSTACLES
+      // ============================================================
+      for (let obs of obstacles) {
+        const dz = obs.z - zOffset;
+        
+        // Collision window: 0.4 to 1.6 units ahead (optimized for 150-180ms @ speedBase)
+        if (dz < 1.6 && dz > 0.4) {
+          if (playerLane === obs.blockedLane) {
+            // Player is in blocked lane -> GAME OVER
+            gameState = "GAMEOVER";
+            bestScore = Math.max(bestScore, Math.floor(score));
+            playDeathSound();
+            updateUI();
+            break;
+          }
+        }
+      }
+    }
+    
+    // ============================================================
+    // LAYER 9b: Rendering - Room (green wireframe enclosure)
+    // ============================================================
+    function renderRoom() {
+      const roomW    = 9.0;
+      const bW       = bridgeWidth / 2;  // 2.0 — bridge outer edge
+      const floorY   = -bridgeHeight / 2;
+      const ceilY    = 3.2;
+      const roomSegs = worldSegments;
+      const segLen   = worldLength / roomSegs;
+      const col      = bridgeStroke;  // #00ffcc
+
+      ctx.save();
+      ctx.strokeStyle = col;
+
+      // ---- Floor longitudinal lines — skip any x inside bridge footprint ----
+      ctx.lineWidth = 1;
+      for (let x = -roomW; x <= roomW + 0.01; x += 1.5) {
+        if (x > -bW - 0.05 && x < bW + 0.05) continue; // overlaps bridge — skip
+        ctx.globalAlpha = 0.20;
+        ctx.beginPath();
+        let first = true;
+        for (let i = 0; i <= roomSegs; i++) {
+          const z = i * segLen + (zOffset % segLen);
+          const [px, py] = project3D(x, floorY, z);
+          if (first) { ctx.moveTo(px, py); first = false; }
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+
+      // ---- Ceiling longitudinal lines ----
+      for (let x = -roomW; x <= roomW + 0.01; x += 3.0) {
+        ctx.globalAlpha = 0.14;
+        ctx.beginPath();
+        let first = true;
+        for (let i = 0; i <= roomSegs; i++) {
+          const z = i * segLen + (zOffset % segLen);
+          const [px, py] = project3D(x, ceilY, z);
+          if (first) { ctx.moveTo(px, py); first = false; }
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+
+      // ---- Wall horizontal rails ----
+      const wallSteps = 4;
+      for (let s = 0; s <= wallSteps; s++) {
+        const wy = floorY + (ceilY - floorY) * (s / wallSteps);
+        for (const wx of [-roomW, roomW]) {
+          ctx.globalAlpha = 0.18;
+          ctx.beginPath();
+          let first = true;
+          for (let i = 0; i <= roomSegs; i++) {
+            const z = i * segLen + (zOffset % segLen);
+            const [px, py] = project3D(wx, wy, z);
+            if (first) { ctx.moveTo(px, py); first = false; }
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        }
+      }
+
+      // ---- Transversal cross-sections — floor drawn as two segments outside bridge ----
+      ctx.lineWidth = 0.8;
+      for (let i = 0; i <= roomSegs; i++) {
+        const z = i * segLen + (zOffset % segLen);
+
+        // Floor left segment (outside bridge)
+        ctx.globalAlpha = 0.13;
+        const [fl1x, fl1y] = project3D(-roomW, floorY, z);
+        const [fl2x, fl2y] = project3D(-bW,    floorY, z);
+        const [fr1x, fr1y] = project3D( bW,    floorY, z);
+        const [fr2x, fr2y] = project3D( roomW, floorY, z);
+        ctx.beginPath(); ctx.moveTo(fl1x, fl1y); ctx.lineTo(fl2x, fl2y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(fr1x, fr1y); ctx.lineTo(fr2x, fr2y); ctx.stroke();
+
+        // Ceiling cross (full width — no bridge there)
+        const [c1x, c1y] = project3D(-roomW, ceilY, z);
+        const [c2x, c2y] = project3D( roomW, ceilY, z);
+        ctx.beginPath(); ctx.moveTo(c1x, c1y); ctx.lineTo(c2x, c2y); ctx.stroke();
+
+        // Side wall verticals
+        const [lwbx, lwby] = project3D(-roomW, floorY, z);
+        const [lwtx, lwty] = project3D(-roomW, ceilY,  z);
+        const [rwbx, rwby] = project3D( roomW, floorY, z);
+        const [rwtx, rwty] = project3D( roomW, ceilY,  z);
+        ctx.beginPath(); ctx.moveTo(lwbx, lwby); ctx.lineTo(lwtx, lwty); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(rwbx, rwby); ctx.lineTo(rwtx, rwty); ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    // ============================================================
+    // LAYER 10: Rendering - Bridge
+    // ============================================================
+    function renderBridge() {
+      // Main wireframe structure
+      const segmentLength = worldLength / worldSegments;
+      
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      
+      // Longitudinal lines (Z direction)
+      for (let x = -bridgeWidth / 2; x <= bridgeWidth / 2; x += laneWidth * 0.5) {
+        ctx.beginPath();
+        let firstPoint = true;
+        
+        for (let i = 0; i <= worldSegments; i++) {
+          const z = i * segmentLength + (zOffset % segmentLength);
+          const [px, py] = project3D(x, -bridgeHeight / 2, z);
+          
+          if (firstPoint) {
+            ctx.moveTo(px, py);
+            firstPoint = false;
+          } else {
+            ctx.lineTo(px, py);
+          }
+        }
+        
+        ctx.strokeStyle = bridgeStroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      
+      // Transversal lines (X direction)
+      ctx.globalAlpha = 0.18;
+      for (let i = 0; i <= worldSegments; i++) {
+        const z = i * segmentLength + (zOffset % segmentLength);
+        
+        ctx.beginPath();
+        const [px1, py1] = project3D(-bridgeWidth / 2, -bridgeHeight / 2, z);
+        const [px2, py2] = project3D(+bridgeWidth / 2, -bridgeHeight / 2, z);
+        ctx.moveTo(px1, py1);
+        ctx.lineTo(px2, py2);
+        
+        ctx.strokeStyle = bridgeStroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      
+      // Semi-transparent bridge surface
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = bridgeColor;
+      
+      for (let i = 0; i < worldSegments; i++) {
+        const z1 = i * segmentLength + (zOffset % segmentLength);
+        const z2 = (i + 1) * segmentLength + (zOffset % segmentLength);
+        
+        ctx.beginPath();
+        const [px1, py1] = project3D(-bridgeWidth / 2, -bridgeHeight / 2, z1);
+        const [px2, py2] = project3D(+bridgeWidth / 2, -bridgeHeight / 2, z1);
+        const [px3, py3] = project3D(+bridgeWidth / 2, -bridgeHeight / 2, z2);
+        const [px4, py4] = project3D(-bridgeWidth / 2, -bridgeHeight / 2, z2);
+        
+        ctx.moveTo(px1, py1);
+        ctx.lineTo(px2, py2);
+        ctx.lineTo(px3, py3);
+        ctx.lineTo(px4, py4);
+        ctx.closePath();
+        ctx.fill();
+      }
+      
+      ctx.restore();
+    }
+    
+    // ============================================================
+    // LAYER 11: Rendering - Collectibles
+    // ============================================================
+    function renderCollectibles() {
+      for (let col of collectibles) {
+        const dz = col.z - zOffset;
+        if (dz < 0 || dz > worldLength) continue;
+        
+        const [cx, cy] = project3D(col.x, col.y, dz);
+        const scale = FOV / (dz + VIEWER_Z);
+        
+        ctx.save();
+        
+        if (col.type === "sphere") {
+          const r = playerRadius * 1.1 * scale;
+          if (col.collected) {
+            // Filled flash on collection
+            ctx.globalAlpha = (col.flashFrames / 20) * 0.95;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fillStyle = collectColor;
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          } else {
+            // Normal: outline only, no fill
+            ctx.globalAlpha = 0.9;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.strokeStyle = collectStroke;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            // Glow ring
+            ctx.globalAlpha = 0.25;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2);
+            ctx.strokeStyle = collectStroke;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        } else {
+          const size = 0.8 * scale;
+          if (col.collected) {
+            // Filled flash on collection
+            ctx.globalAlpha = (col.flashFrames / 20) * 0.95;
+            ctx.fillStyle = collectColor;
+            ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+          } else {
+            // Normal: outline only, no fill
+            ctx.globalAlpha = 0.9;
+            ctx.strokeStyle = collectStroke;
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+            // Glow
+            ctx.globalAlpha = 0.2;
+            ctx.strokeStyle = collectStroke;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cx - size * 0.6, cy - size * 0.6, size * 1.2, size * 1.2);
+          }
+        }
+        
+        ctx.restore();
+      }
+      
+      // Render +1 popups
+      for (let p of popups) {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.font = 'bold 36px -apple-system, sans-serif';
+        ctx.fillStyle = '#00ccff';
+        ctx.textAlign = 'center';
+        ctx.fillText('+1', p.cx, p.cy);
+        ctx.restore();
+      }
+      
+      // Speed Up banner
+      if (speedUpBannerTimer > 0) {
+        speedUpBannerTimer -= 1 / 60;
+        const alpha = Math.min(1, speedUpBannerTimer * 2);
+        const scale = 1 + (1 - Math.min(1, speedUpBannerTimer / 2)) * 0.3;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(W / 2, H * 0.38);
+        ctx.scale(scale, scale);
+        ctx.font = 'bold 52px -apple-system, sans-serif';
+        ctx.fillStyle = '#ff8800';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ffcc00';
+        ctx.shadowBlur = 18;
+        ctx.fillText('SPEED UP!', 0, 0);
+        ctx.restore();
+      }
+    }
+    
+    // ============================================================
+    // LAYER 12: Rendering - Obstacles
+    // ============================================================
+    function renderObstacles() {
+      for (let obs of obstacles) {
+        const dz = obs.z - zOffset;
+        if (dz < 0 || dz > worldLength) continue;
+        
+        const laneX = (obs.blockedLane - (laneCount - 1) / 2) * laneWidth;
+        const [cx, cy] = project3D(laneX, 0, dz);
+        const scale = FOV / (dz + VIEWER_Z);
+        
+        ctx.save();
+        
+        // Red warning obstacle
+        const w = obs.width * scale;
+        const h = 0.8 * scale;
+        
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = obstacleColor;
+        ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+        
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = obstacleStroke;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+        
+        // Flash effect for warning
+        const pulse = Math.sin(Date.now() * 0.01) * 0.3 + 0.4;
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = obstacleStroke;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx - w * 0.6, cy - h * 0.6, w * 1.2, h * 1.2);
+        
+        ctx.restore();
+      }
+    }
+    
+    // ============================================================
+    // LAYER 12b: Rendering - Speeders
+    // ============================================================
+    function renderSpeeders() {
+      for (let sp of speeders) {
+        const dz = sp.z - zOffset;
+        if (dz < 0 || dz > worldLength) continue;
+        
+        const [cx, cy] = project3D(sp.x, 0.1, dz);
+        const scale = FOV / (dz + VIEWER_Z);
+        const size = 0.7 * scale;
+        
+        // Pulsing glow
+        const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
+        
+        ctx.save();
+        
+        // Outer glow
+        ctx.globalAlpha = 0.25 * pulse;
+        ctx.fillStyle = '#ff8800';
+        ctx.beginPath();
+        ctx.moveTo(cx,          cy - size * 1.5);
+        ctx.lineTo(cx + size * 1.5, cy);
+        ctx.lineTo(cx,          cy + size * 1.5);
+        ctx.lineTo(cx - size * 1.5, cy);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Main diamond fill
+        ctx.globalAlpha = 0.85;
+        const grad = ctx.createRadialGradient(cx - size * 0.3, cy - size * 0.3, 0, cx, cy, size * 1.1);
+        grad.addColorStop(0, '#ffffaa');
+        grad.addColorStop(0.3, '#ffaa00');
+        grad.addColorStop(0.7, '#ff6600');
+        grad.addColorStop(1, '#662200');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(cx,        cy - size);
+        ctx.lineTo(cx + size, cy);
+        ctx.lineTo(cx,        cy + size);
+        ctx.lineTo(cx - size, cy);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Border
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = '#ffcc44';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx,        cy - size);
+        ctx.lineTo(cx + size, cy);
+        ctx.lineTo(cx,        cy + size);
+        ctx.lineTo(cx - size, cy);
+        ctx.closePath();
+        ctx.stroke();
+        
+        ctx.restore();
+      }
+    }
+    
+    // ============================================================
+    // LAYER 13: Rendering - Player (STRONG 3D SPHERE with Physics Lighting)
+    // ============================================================
+    // Ball color palettes cycling every 2500 score
+    // Each entry: [highlight, bright, mid, shadowMid, shadowDark, rim]
+    const ballPalettes = [
+      ['#ffff99', '#ffdd00', '#ffcc00', '#cc8800', '#664400', '#1a0000'],  // yellow (default)
+      ['#ff99ff', '#ff44dd', '#cc00cc', '#880088', '#440044', '#0d000d'],  // magenta
+      ['#99ffff', '#00ddff', '#00aacc', '#006688', '#003344', '#00000d'],  // cyan
+      ['#99ff99', '#44ff44', '#00cc44', '#008833', '#004422', '#000d00'],  // green
+      ['#ffbb99', '#ff6600', '#ee4400', '#aa2200', '#551100', '#0d0000'],  // orange
+      ['#aaaaff', '#6666ff', '#4444dd', '#222299', '#111155', '#00000d'],  // blue
+      ['#ffffff', '#dddddd', '#aaaaaa', '#666666', '#333333', '#000000'],  // white/silver
+    ];
+    
+    function renderPlayer() {
+      const playerX = (playerLane - (laneCount - 1) / 2) * laneWidth;
+      const playerZ = 5.0;  // Further from camera = higher on screen, more road visible
+      
+      const [cx, cy] = project3D(playerX, 0, playerZ);
+      const scale = FOV / (playerZ + VIEWER_Z);
+      const r = playerRadius * scale * 1.35;  // Slightly larger
+      
+      // Pick palette based on score tier (changes every 2500)
+      const tier = Math.floor(score / 2500) % ballPalettes.length;
+      const pal = ballPalettes[tier];
+      
+      ctx.save();
+      
+      // === REALISTIC 3D PHYSICS SPHERE ===
+      
+      // 1. SHADOW: Ground shadow beneath sphere
+      const shadowGradient = ctx.createRadialGradient(cx + r * 0.1, cy + r * 0.8, 0, cx + r * 0.1, cy + r * 0.8, r * 1.5);
+      shadowGradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
+      shadowGradient.addColorStop(0.6, 'rgba(0, 0, 0, 0.1)');
+      shadowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = shadowGradient;
+      ctx.beginPath();
+      ctx.ellipse(cx + r * 0.05, cy + r * 0.7, r * 0.8, r * 0.15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 2. MAIN SPHERE: Strong radial gradient (top-left light source)
+      const sphereGradient = ctx.createRadialGradient(
+        cx - r * 0.5,  // Bright light point (top-left)
+        cy - r * 0.6,
+        0,
+        cx,
+        cy,
+        r * 1.15
+      );
+      
+      // Color stops driven by current palette
+      sphereGradient.addColorStop(0, pal[0]);       // Bright highlight
+      sphereGradient.addColorStop(0.25, pal[1]);    // Main bright
+      sphereGradient.addColorStop(0.5, pal[2]);     // Mid
+      sphereGradient.addColorStop(0.7, pal[3]);     // Shadow transition
+      sphereGradient.addColorStop(0.88, pal[4]);    // Dark shadow
+      sphereGradient.addColorStop(1, pal[5]);       // Near-black rim
+      
+      ctx.globalAlpha = 0.99;
+      ctx.fillStyle = sphereGradient;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 3. SPECULAR HIGHLIGHT: Glossy, sharp reflection
+      const highlightGradient = ctx.createRadialGradient(
+        cx - r * 0.4,
+        cy - r * 0.45,
+        0,
+        cx - r * 0.4,
+        cy - r * 0.45,
+        r * 0.3
+      );
+      highlightGradient.addColorStop(0, 'rgba(255, 255, 200, 0.95)');  // Bright white core
+      highlightGradient.addColorStop(0.4, 'rgba(255, 255, 150, 0.5)');
+      highlightGradient.addColorStop(0.8, 'rgba(255, 255, 100, 0.1)');
+      highlightGradient.addColorStop(1, 'rgba(255, 255, 100, 0)');
+      
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = highlightGradient;
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.4, cy - r * 0.45, r * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 4. SECONDARY HIGHLIGHT: Small sharp gloss point
+      const glossGradient = ctx.createRadialGradient(
+        cx - r * 0.25,
+        cy - r * 0.25,
+        0,
+        cx - r * 0.25,
+        cy - r * 0.25,
+        r * 0.12
+      );
+      glossGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      glossGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = glossGradient;
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 5. RIM LIGHT: Subtle edge glow (halo effect = atmosphere)
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = '#ffff88';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      ctx.restore();
+    }
+    
+    // ============================================================
+    // LAYER 14: UI Messages (Auto-dismiss overlay)
+    // ============================================================
+    function updateUI() {
+      // Clear previous timeout
+      if (uiMessageTimeout) {
+        clearTimeout(uiMessageTimeout);
+        uiMessageTimeout = null;
+      }
+      
+      gameUI.innerHTML = "";
+      
+      // START: Show message for 2.5 seconds then auto-hide
+      if (gameState === "START") {
+        const msg = document.createElement("div");
+        msg.className = "ui-message visible";
+        msg.textContent = "PRESS U TO START";
+        gameUI.appendChild(msg);
+        
+        // Auto-hide after 2.5 seconds
+        uiMessageTimeout = setTimeout(() => {
+          if (gameState === "START") {
+            msg.classList.remove("visible");
+          }
+        }, 2500);
+      } 
+      // GAMEOVER: Show message, stays until player restarts
+      else if (gameState === "GAMEOVER") {
+        const container = document.createElement("div");
+        container.style.cssText = `
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+        `;
+        
+        const msg = document.createElement("div");
+        msg.className = "ui-message visible game-over";
+        msg.textContent = "GAME OVER";
+        
+        const subtitle = document.createElement("div");
+        subtitle.className = "ui-subtitle";
+        subtitle.textContent = "PRESS C TO RESTART";
+        
+        container.appendChild(msg);
+        container.appendChild(subtitle);
+        gameUI.appendChild(container);
+      }
+      
+      // PAUSED: Show pause overlay
+      else if (gameState === "PAUSED") {
+        const msg = document.createElement("div");
+        msg.className = "ui-message visible";
+        msg.textContent = "PAUSED";
+        gameUI.appendChild(msg);
+      }
+      
+      // Pause button visibility
+      if (typeof pauseBtn !== 'undefined') {
+        pauseBtn.style.display = (gameState === "RUNNING" || gameState === "PAUSED") ? "block" : "none";
+        pauseBtn.textContent = gameState === "PAUSED" ? "RESUME" : "PAUSE";
+      }
+      
+      // Score display (small, right corner, non-intrusive)
+      const scoreDiv = document.getElementById("score");
+      if (gameState === "RUNNING" || gameState === "PAUSED") {
+        scoreDiv.textContent = `SCORE: ${Math.floor(score)}`;
+      } else if (gameState === "GAMEOVER") {
+        scoreDiv.textContent = `SCORE: ${Math.floor(score)} | BEST: ${bestScore}`;
+      } else {
+        scoreDiv.textContent = "";
+      }
+    }
+    
+    // ============================================================
+    // LAYER 15: Main Render
+    // ============================================================
+    function render() {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, W, H);
+      
+      renderRoom();
+      renderBridge();
+      renderCollectibles();
+      renderObstacles();
+      renderSpeeders();
+      renderPlayer();
+      
+      // Update score and collected display every frame
+      const scoreDiv = document.getElementById("score");
+      const collectedDiv = document.getElementById("collected");
+      if (gameState === "RUNNING" || gameState === "PAUSED") {
+        scoreDiv.textContent = `SCORE: ${Math.floor(score)}`;
+        collectedDiv.textContent = `SHAPES: ${shapesCollected}`;
+      } else {
+        collectedDiv.textContent = "";
+      }
+    }
+    
+    // ============================================================
+    // LAYER 16: Game Loop
+    // ============================================================
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+    
+    // Splash screen dismiss
+    const splash = document.getElementById('splash');
+    
+    function dismissSplash() {
+      splash.classList.add('hidden');
+      setTimeout(() => { splash.style.display = 'none'; }, 800);
+    }
+    
+    splash.addEventListener('click', dismissSplash);
+    document.addEventListener('keydown', dismissSplash, { once: true });
+    
+    // Start
+    resetGame();
+    updateUI();
+    loop();
+  </script>
+</body>
+</html>

@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bridge Collect-Dodge Runner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      background: #000000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw !important;
+      height: 100vh !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+    }
+
+    #gameContainer {
+      width: 100vw;
+      height: 100vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* ── Shared UI token ────────────────────────────── */
+    #connectBtn, #status, #score {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Connect button ─────────────────────────────── */
+    #connectBtn {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(6px);
+      color: #ffffff;
+      border: 1px solid rgba(0, 255, 204, 0.6);
+      border-radius: 6px;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      opacity: 0.75;
+    }
+    #connectBtn:hover { background: rgba(0,255,204,0.12); opacity: 1; box-shadow: 0 0 10px rgba(0,255,204,0.25); }
+    #connectBtn:active { transform: scale(0.97); }
+
+    /* ── Connection status (bottom-left) ────────────── */
+    #status {
+      position: fixed;
+      bottom: 20px;
+      left: 24px;
+      color: #ffffff;
+      z-index: 100;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    /* ── Score circle (top-center) ──────────────────── */
+    #score {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(6px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      color: #ffffff;
+      z-index: 100;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    /* ── Game UI overlay ────────────────────────────── */
+    #gameUI {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      z-index: 50;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ui-message {
+      font-family: inherit;
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: #ffffff;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .ui-message.visible { opacity: 0.95; }
+    .ui-message.game-over { color: #ff3366; font-size: 48px; }
+
+    .ui-subtitle {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      color: #ffffff;
+      margin-top: 14px;
+      opacity: 0.6;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+    }
+  </style>
+</head>
+<body>
+  <div id="gameContainer"></div>
+  <div id="gameUI"></div>
+  <button id="connectBtn">CONNECT</button>
+  <div id="status"></div>
+  <div id="score"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // ============================================================
+    // LAYER 1: Web Serial Input (100% PRESERVED)
+    // ============================================================
+    let port, reader, decoder = new TextDecoder(), buffer = "", inputQueue = [];
+    let connected = false;
+
+    const connectBtn = document.getElementById('connectBtn');
+    const statusDiv  = document.getElementById('status');
+    connectBtn.textContent = "CONNECT";
+
+    async function connectSerial() {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        reader = port.readable.getReader();
+        connected = true;
+        connectBtn.textContent = "CONNECTED";
+        statusDiv.textContent = "✓ Joystick Ready";
+        readSerial();
+      } catch (e) {
+        statusDiv.textContent = "✗ Connection Failed";
+        connectBtn.textContent = "CONNECT";
+      }
+    }
+
+    async function readSerial() {
+      while (connected) {
+        try {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let lines = buffer.split("\n");
+          buffer = lines.pop();
+          for (let line of lines) {
+            let cmd = line.trim();
+            if (cmd) inputQueue.push(cmd);
+          }
+        } catch (e) {
+          connected = false;
+          connectBtn.textContent = "CONNECT";
+          statusDiv.textContent = "✗ Disconnected";
+        }
+      }
+    }
+    connectBtn.onclick = connectSerial;
+
+    // ============================================================
+    // THREE.JS SETUP (100% PRESERVED - bridge + camera structure)
+    // ============================================================
+    const container = document.getElementById('gameContainer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 3.5, 1.5);
+    camera.lookAt(0, 0, 15);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    // ── Lighting (100% PRESERVED) ──────────────────────────────
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(2, 3, 2); dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    scene.add(dirLight);
+    const dirLight2 = new THREE.DirectionalLight(0x88ccff, 0.3);
+    dirLight2.position.set(-2, 2, 2);
+    scene.add(dirLight2);
+
+    // ── Bridge mesh (100% PRESERVED) ──────────────────────────
+    const bridgeWidth   = 4.0;
+    const bridgeHeight  = 0.5;
+    const worldLength   = 50;
+    const laneCount     = 3;
+    const laneWidth     = bridgeWidth / laneCount;
+    const playerRadius  = 0.45;
+    const speedBase     = 0.15;
+    const speedUp       = 0.25;
+
+    const bGeo = new THREE.BufferGeometry();
+    const bVerts = [], bIdx = [];
+    const bSegs = 50, bVPR = 9;
+
+    for (let i = 0; i <= bSegs; i++)
+      for (let j = -2; j <= 2; j += 0.5)
+        bVerts.push(j, 0, i * (worldLength / bSegs));
+
+    for (let i = 0; i < bSegs; i++) {
+      const row = i * bVPR;
+      for (let j = 0; j < bVPR - 1; j++) bIdx.push(row + j, row + j + 1);
+      for (let j = 0; j < bVPR; j++) bIdx.push(row + j, row + j + bVPR);
+    }
+
+    bGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bVerts), 3));
+    bGeo.setIndex(new THREE.BufferAttribute(new Uint32Array(bIdx), 1));
+    const bridge = new THREE.LineSegments(bGeo, new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2 }));
+    scene.add(bridge);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      W = window.innerWidth; H = window.innerHeight;
+      overlayCanvas.width = W; overlayCanvas.height = H;
+    });
+
+    // ============================================================
+    // OVERLAY CANVAS  (2-D objects aligned to Three.js camera)
+    // ============================================================
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;z-index:10;';
+    document.body.appendChild(overlayCanvas);
+    const ctx = overlayCanvas.getContext('2d');
+    let W = window.innerWidth, H = window.innerHeight;
+    overlayCanvas.width = W; overlayCanvas.height = H;
+
+    // World → screen via the actual Three.js camera matrices.
+    function worldToScreen(wx, wy, wz) {
+      const v = new THREE.Vector3(wx, wy, wz);
+      v.project(camera);
+      if (v.z > 1) return null;
+      return [(v.x + 1) / 2 * W, (-v.y + 1) / 2 * H];
+    }
+
+    // Pixel width of 1 world-unit at the given position.
+    function pixelScale(wx, wy, wz) {
+      const a = worldToScreen(wx - 0.5, wy, wz);
+      const b = worldToScreen(wx + 0.5, wy, wz);
+      if (!a || !b) return 20;
+      return Math.abs(b[0] - a[0]);
+    }
+
+    // ── Coordinate mapping ─────────────────────────────────────
+    // game dz  →  Three.js worldZ = dz + WORLD_Z_OFFSET
+    // player sits at dz ≈ 1.0, so PLAYER_WORLD_Z = 1.0 + WORLD_Z_OFFSET
+    //
+    // Camera forward angle analysis (camera at Y=3.5,Z=1.5 lookAt Y=0,Z=15):
+    //   camera local-X axis = world (-1,0,0)  →  world +X appears screen-LEFT.
+    //   Lane 0 (world x=-1.33) = screen RIGHT; Lane 2 (world x=+1.33) = screen LEFT.
+    //   So joystick "L" must increase playerLane (→ world +X → screen left). ✓
+    const PLAYER_WORLD_Z = 7.0;
+    const WORLD_Z_OFFSET = 6.0;   // dz=1 → worldZ=7
+
+    // ============================================================
+    // GAME STATE
+    // ============================================================
+    let gameState = "START";
+    let playerLane    = 1;
+    let playerDisplayX = 0;
+    let laneCooldown  = 0;
+    let speed = speedBase;
+    let zOffset = 0;
+    let score = 0;
+    let bestScore = 0;
+
+    let collectibles = [];
+    let collectibleSpawnTimer = 0;
+    const collectSpawnInterval = 22;   // world units between spawns (~2.4 s at speedBase)
+
+    let obstacles = [];
+    let obstacleSpawnTimer = 0;
+    const obstacleSpawnInterval = 55;  // world units between spawns (~6.1 s at speedBase)
+
+    function resetGame() {
+      gameState = "START";
+      playerLane = 1;
+      playerDisplayX = 0;
+      laneCooldown = 0;
+      speed = speedBase;
+      zOffset = 0;
+      collectibles = [];
+      obstacles = [];
+      score = 0;
+      collectibleSpawnTimer = 0;
+      obstacleSpawnTimer = 0;
+      updateUI();
+    }
+
+    // Spawn 1–2 collectibles 22–32 game-units ahead, lane-centred with slight jitter.
+    function spawnCollectible() {
+      const count = Math.floor(Math.random() * 2) + 1;
+      const baseZ  = zOffset + 22 + Math.random() * 10;
+      for (let i = 0; i < count; i++) {
+        const lane = Math.floor(Math.random() * laneCount);
+        const laneX = (lane - (laneCount - 1) / 2) * laneWidth;
+        collectibles.push({
+          x: laneX + (Math.random() - 0.5) * laneWidth * 0.25,
+          y: 0,
+          z: baseZ + i * 4,
+          type: Math.random() > 0.5 ? "sphere" : "cube",
+          collected: false
+        });
+      }
+      collectibleSpawnTimer = 0;
+    }
+
+    // Spawn one obstacle 28–42 game-units ahead, full lane width.
+    function spawnObstacle() {
+      const blockedLane = Math.floor(Math.random() * laneCount);
+      obstacles.push({
+        z:          zOffset + 28 + Math.random() * 14,
+        blockedLane,
+        laneX:      (blockedLane - (laneCount - 1) / 2) * laneWidth,
+        w:          laneWidth * 0.88,   // fills most of one lane
+        h:          1.0                 // world-unit height
+      });
+      obstacleSpawnTimer = 0;
+    }
+
+    // ============================================================
+    // INPUT
+    // ============================================================
+    function handleInput(cmd) {
+      if (gameState === "GAMEOVER" && cmd === "C") { resetGame(); return; }
+
+      if (gameState === "START" && cmd === "U") {
+        gameState = "RUNNING";
+        spawnCollectible();
+        spawnObstacle();
+        updateUI();
+        // fall through — "U" also boosts immediately on start
+      }
+      if (gameState !== "RUNNING") return;
+
+      if (cmd === "L" && playerLane < laneCount - 1 && laneCooldown === 0) {
+        playerLane++; laneCooldown = 10;
+      }
+      if (cmd === "R" && playerLane > 0 && laneCooldown === 0) {
+        playerLane--; laneCooldown = 10;
+      }
+
+      // U = boost ON (persistent); U_RELEASE or D = boost OFF
+      if (cmd === "U") { speed = speedUp; }
+      if (cmd === "U_RELEASE") { speed = speedBase; }
+      if (cmd === "D") { speed = speedBase; }
+      if (cmd === "C") resetGame();
+    }
+
+    // Keyboard: hold ArrowUp/Space to boost, release to stop
+    window.addEventListener('keydown', e => {
+      if (e.repeat) return;
+      if (e.code === 'ArrowUp' || e.code === 'Space') { inputQueue.push("U"); return; }
+      const map = { ArrowLeft: "L", ArrowRight: "R", ArrowDown: "D", KeyC: "C" };
+      if (map[e.code]) inputQueue.push(map[e.code]);
+    });
+    window.addEventListener('keyup', e => {
+      if (e.code === 'ArrowUp' || e.code === 'Space') inputQueue.push("U_RELEASE");
+    });
+
+    // ============================================================
+    // UPDATE
+    // ============================================================
+    function update() {
+      while (inputQueue.length > 0) handleInput(inputQueue.shift());
+      if (gameState !== "RUNNING") return;
+
+      if (laneCooldown > 0) laneCooldown--;
+
+      // Smooth visual X position (lerp toward logical lane center, factor 0.18)
+      const targetX = (playerLane - (laneCount - 1) / 2) * laneWidth;
+      playerDisplayX += (targetX - playerDisplayX) * 0.18;
+
+      zOffset += speed;
+      collectibleSpawnTimer += speed;
+      obstacleSpawnTimer    += speed;
+
+      if (collectibleSpawnTimer >= collectSpawnInterval) spawnCollectible();
+      if (obstacleSpawnTimer    >= obstacleSpawnInterval) spawnObstacle();
+
+      const playerX = (playerLane - (laneCount - 1) / 2) * laneWidth;
+
+      // ── Collectible collision ────────────────────────────────
+      for (let i = collectibles.length - 1; i >= 0; i--) {
+        const col = collectibles[i];
+        const dz  = col.z - zOffset;
+        if (dz < -1) { collectibles.splice(i, 1); continue; }
+        if (!col.collected && dz < 1.3 && dz > 0.5) {
+          if (Math.abs(col.x - playerX) < playerRadius + 0.55) {
+            col.collected = true;
+            score += 1;
+            collectibles.splice(i, 1);
+          }
+        }
+      }
+
+      // ── Obstacle collision ───────────────────────────────────
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const obs = obstacles[i];
+        const dz  = obs.z - zOffset;
+        if (dz < -1) { obstacles.splice(i, 1); continue; }
+        if (dz < 1.6 && dz > 0.4 && playerLane === obs.blockedLane) {
+          gameState = "GAMEOVER";
+          bestScore = Math.max(bestScore, Math.floor(score));
+          updateUI();
+          break;
+        }
+      }
+    }
+
+    // ============================================================
+    // RENDERING  –  Player
+    // ============================================================
+    function renderPlayer() {
+      const pos = worldToScreen(playerDisplayX, 0, PLAYER_WORLD_Z);
+      if (!pos) return;
+      const [cx, cy] = pos;
+      const s = pixelScale(playerDisplayX, 0, PLAYER_WORLD_Z);
+      const r = playerRadius * s * 1.4;
+
+      ctx.save();
+
+      // Ground shadow
+      const sg = ctx.createRadialGradient(cx + r*0.1, cy + r*0.8, 0, cx + r*0.1, cy + r*0.8, r*1.5);
+      sg.addColorStop(0, 'rgba(0,0,0,0.3)'); sg.addColorStop(0.6, 'rgba(0,0,0,0.1)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.6; ctx.fillStyle = sg;
+      ctx.beginPath(); ctx.ellipse(cx + r*0.05, cy + r*0.7, r*0.8, r*0.15, 0, 0, Math.PI*2); ctx.fill();
+
+      // Main sphere
+      const sg2 = ctx.createRadialGradient(cx - r*0.5, cy - r*0.6, 0, cx, cy, r*1.15);
+      sg2.addColorStop(0,    '#ffff99');
+      sg2.addColorStop(0.25, '#ffdd00');
+      sg2.addColorStop(0.5,  '#ffcc00');
+      sg2.addColorStop(0.7,  '#cc8800');
+      sg2.addColorStop(0.88, '#664400');
+      sg2.addColorStop(1,    '#1a0000');
+      ctx.globalAlpha = 1; ctx.fillStyle = sg2;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+
+      // Specular
+      const sh = ctx.createRadialGradient(cx - r*0.4, cy - r*0.45, 0, cx - r*0.4, cy - r*0.45, r*0.32);
+      sh.addColorStop(0, 'rgba(255,255,200,0.95)'); sh.addColorStop(0.4, 'rgba(255,255,150,0.5)');
+      sh.addColorStop(0.8, 'rgba(255,255,100,0.1)'); sh.addColorStop(1, 'rgba(255,255,100,0)');
+      ctx.globalAlpha = 0.95; ctx.fillStyle = sh;
+      ctx.beginPath(); ctx.arc(cx - r*0.4, cy - r*0.45, r*0.35, 0, Math.PI*2); ctx.fill();
+
+      // Gloss dot
+      const sg3 = ctx.createRadialGradient(cx - r*0.25, cy - r*0.25, 0, cx - r*0.25, cy - r*0.25, r*0.12);
+      sg3.addColorStop(0, 'rgba(255,255,255,1)'); sg3.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.globalAlpha = 0.7; ctx.fillStyle = sg3;
+      ctx.beginPath(); ctx.arc(cx - r*0.25, cy - r*0.25, r*0.15, 0, Math.PI*2); ctx.fill();
+
+      // Rim
+      ctx.globalAlpha = 0.3; ctx.strokeStyle = '#ffff88'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, r*0.98, 0, Math.PI*2); ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // ============================================================
+    // RENDERING  –  Collectibles
+    // ============================================================
+    function renderCollectibles() {
+      for (const col of collectibles) {
+        const dz = col.z - zOffset;
+        // Show from spawn distance (max ~32) down to just past player
+        if (dz < 0.1 || dz > 36) continue;
+
+        const worldZ = dz + WORLD_Z_OFFSET;
+        const pos = worldToScreen(col.x, col.y, worldZ);
+        if (!pos) continue;
+        const [cx, cy] = pos;
+        const s = pixelScale(col.x, col.y, worldZ);
+
+        ctx.save();
+        const r = playerRadius * 0.75 * s;
+        ctx.globalAlpha = 0.75; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(100,200,255,0.35)"; ctx.fill();
+        ctx.globalAlpha = 0.95; ctx.strokeStyle = "#00ccff"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.arc(cx, cy, r * 1.6, 0, Math.PI*2);
+        ctx.strokeStyle = "#00ccff"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // ============================================================
+    // RENDERING  –  Obstacles
+    // ============================================================
+    function renderObstacles() {
+      for (const obs of obstacles) {
+        const dz = obs.z - zOffset;
+        // Show from spawn distance (max ~42) down to just past player
+        if (dz < 0.1 || dz > 45) continue;
+
+        const worldZ = dz + WORLD_Z_OFFSET;
+        const pos = worldToScreen(obs.laneX, 0, worldZ);
+        if (!pos) continue;
+        const [cx, cy] = pos;
+        const s = pixelScale(obs.laneX, 0, worldZ);
+        const pw = obs.w * s;
+        const ph = obs.h * s;
+
+        ctx.save();
+
+        // Fill
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = "rgba(255,50,100,0.25)";
+        ctx.fillRect(cx - pw/2, cy - ph/2, pw, ph);
+
+        // Border
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#ff3366";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx - pw/2, cy - ph/2, pw, ph);
+
+        // Pulsing outer warning
+        const pulse = Math.sin(Date.now() * 0.008) * 0.35 + 0.45;
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = "#ff3366";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx - pw*0.62, cy - ph*0.62, pw*1.24, ph*1.24);
+
+        ctx.restore();
+      }
+    }
+
+    function renderOverlay() {
+      ctx.clearRect(0, 0, W, H);
+      if (gameState === "RUNNING" || gameState === "GAMEOVER") {
+        renderCollectibles();
+        renderObstacles();
+        renderPlayer();
+      }
+    }
+
+    // ============================================================
+    // UI
+    // ============================================================
+    function updateUI() {
+      const gameUI = document.getElementById('gameUI');
+      gameUI.innerHTML = "";
+
+      if (gameState === "START") {
+        const msg = document.createElement("div");
+        msg.className = "ui-message visible";
+        msg.textContent = "PUSH FORWARD TO START";
+        gameUI.appendChild(msg);
+        setTimeout(() => { if (gameState === "START") msg.classList.remove("visible"); }, 2500);
+
+      } else if (gameState === "GAMEOVER") {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:12px;";
+        const msg = document.createElement("div");
+        msg.className = "ui-message visible game-over";
+        msg.textContent = "GAME OVER";
+        const sub = document.createElement("div");
+        sub.className = "ui-subtitle";
+        sub.textContent = "PRESS C TO RESTART";
+        wrap.appendChild(msg);
+        wrap.appendChild(sub);
+        gameUI.appendChild(wrap);
+      }
+    }
+
+    function updateScore() {
+      const scoreDiv = document.getElementById("score");
+      if (gameState === "RUNNING") {
+        const dist = Math.floor(zOffset) + "m";
+        scoreDiv.innerHTML =
+          `<span style="font-size:8px;font-weight:500;opacity:0.45;letter-spacing:.08em;">COLLECTED</span>` +
+          `<span style="font-size:22px;font-weight:700;line-height:1.1;">${score}</span>` +
+          `<span style="font-size:11px;font-weight:500;opacity:0.6;line-height:1.3;">${dist}</span>`;
+        scoreDiv.style.opacity = "0.88";
+      } else if (gameState === "GAMEOVER") {
+        const dist = Math.floor(zOffset) + "m";
+        scoreDiv.innerHTML =
+          `<span style="font-size:8px;font-weight:500;opacity:0.45;letter-spacing:.08em;">COLLECTED</span>` +
+          `<span style="font-size:19px;font-weight:700;line-height:1.1;">${score}</span>` +
+          `<span style="font-size:11px;font-weight:500;opacity:0.6;line-height:1.3;">${dist}</span>` +
+          `<span style="font-size:8px;font-weight:500;opacity:0.35;letter-spacing:.06em;">BEST ${bestScore}</span>`;
+        scoreDiv.style.opacity = "0.88";
+      } else {
+        scoreDiv.style.opacity = "0";
+      }
+    }
+
+    // ============================================================
+    // LOOP
+    // ============================================================
+    function animate() {
+      requestAnimationFrame(animate);
+      update();
+      renderer.render(scene, camera);
+      renderOverlay();
+      updateScore();
+    }
+
+    resetGame();
+    animate();
+  </script>
+</body>
+</html>
